@@ -30,10 +30,10 @@ $config['environment_indicator.indicator']['fg_color'] = '#FFFFFF';
 $config['environment_indicator.indicator']['name'] = 'Local';
 
 // Environment dependent configuration (in PlatformSh).
-if (getenv('PLATFORM_ENVIRONMENT')) {
+if (getenv('PANTHEON_ENVIRONMENT')) {
 
-  switch (getenv('PLATFORM_BRANCH')) {
-    case 'master':
+  switch (getenv('PANTHEON_ENVIRONMENT')) {
+    case 'live':
       // Config Split.
       $config['config_split.config_split.dev']['status'] = FALSE;
       // Environment indicator.
@@ -42,7 +42,7 @@ if (getenv('PLATFORM_ENVIRONMENT')) {
       $config['environment_indicator.indicator']['name'] = 'Live';
       break;
 
-    case 'staging':
+    case 'test':
       // Config Split.
       $config['config_split.config_split.dev']['status'] = FALSE;
       // Environment indicator.
@@ -60,17 +60,17 @@ if (getenv('PLATFORM_ENVIRONMENT')) {
       $config['environment_indicator.indicator']['name'] = 'Development';
       break;
   }
+
+  // Automatic Pantheon settings.
+  if (file_exists($app_root . '/' . $site_path . '/settings.pantheon.php')) {
+    include $app_root . '/' . $site_path . '/settings.pantheon.php';
+  }
 }
 
 // Set up a config sync directory.
 //
 // This is defined inside the read-only "config" directory, deployed via Git.
 $settings['config_sync_directory'] = '../config/sync';
-
-// Automatic Platform.sh settings.
-if (file_exists($app_root . '/' . $site_path . '/settings.platformsh.php')) {
-  include $app_root . '/' . $site_path . '/settings.platformsh.php';
-}
 
 // Local settings. These come last so that they can override anything.
 if (file_exists($app_root . '/' . $site_path . '/settings.local.php')) {
