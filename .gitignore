@@ -33,8 +33,6 @@ settings.local.php
 services.local.yml
 !.circleci/settings.secret.php
 
-# Plaform files
-.platform/local
 
 # Book build output
 docs/_book
@@ -46,3 +44,4 @@ docs/*.mobi
 docs/*.pdf
 /.editorconfig
 /.gitattributes
+/.drush-lock-update
