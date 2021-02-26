@@ -29,7 +29,7 @@ $config['environment_indicator.indicator']['bg_color'] = '#863DA1';
 $config['environment_indicator.indicator']['fg_color'] = '#FFFFFF';
 $config['environment_indicator.indicator']['name'] = 'Local';
 
-// Environment dependent configuration (in PlatformSh).
+// Environment dependent configuration.
 if (getenv('PANTHEON_ENVIRONMENT')) {
 
   switch (getenv('PANTHEON_ENVIRONMENT')) {

@@ -1,6 +1,6 @@
-# PlatformSh Drupal Template
+# Pantheon Drupal Template
 
-Template based on [drupal/recomended-project](https://github.com/drupal/recommended-project) to create drupal projects to be deployed in [Platformsh](https://platform.sh/), also includes:
+Template based on [drupal/recomended-project](https://github.com/drupal/recommended-project) to create drupal projects to be deployed in [Pantheon](https://pantheon.io/), also includes:
 
 - [bloom](https://github.com/ManatiCR/bloom)
 
