@@ -2,11 +2,13 @@ version: 2
 # Environment variables required by the project:
 # GIT_EMAIL
 # GIT_NAME
-# PLATFORMSH_CLI_TOKEN
-# PLATFORM_GIT_REPO
-# PLATFORM_PROJECT_ID
-# SITE_UUID
 # SITE_URL
+# SITE_UUID
+# PANTHEON_TOKEN
+# PANTHEON_GIT_REPO
+# PANTHEON_PROJECT_NAME
+# PANTHEON_WEB_AUTH_USER
+# PANTHEON_WEB_AUTH_PASS
 # LHCI_GITHUB_APP_TOKEN
 
 jobs:
@@ -21,8 +23,8 @@ jobs:
     steps:
       - run: apt-get update -y && apt-get install python -y
       - run: echo 127.0.0.1 local_site.local | tee -a /etc/hosts
-      - add_ssh_keys:
       - checkout
+      - add_ssh_keys:
       - restore_cache:
           keys:
             - npm-cache-{{ checksum "package.json" }}
@@ -42,9 +44,12 @@ jobs:
             php -r "unlink('composer-setup.php');"
             mv composer.phar /usr/bin/composer
       - run:
-          name: Install Platform CLI
+          name: Install and login terminus
           command: |
-            curl -sS https://platform.sh/cli/installer | php
+            mkdir terminus && cd terminus
+            curl -O https://raw.githubusercontent.com/pantheon-systems/terminus-installer/master/builds/installer.phar && php installer.phar install
+            ln -s /var/www/local_site/terminus/vendor/bin/terminus /usr/bin/terminus
+            terminus auth:login --machine-token=$PANTHEON_TOKEN
       - run:
           name: Configure Nginx
           command: |
@@ -80,7 +85,7 @@ jobs:
             git config --global user.name $GIT_NAME
             echo 'Host *' >> /root/.ssh/config
             echo '   StrictHostKeyChecking no' >> /root/.ssh/config
-            /root/.platformsh/bin/platform db:dump --gzip --file=database.sql.gz -p $PLATFORM_PROJECT_ID -e master
+            terminus backup:get $PANTHEON_PROJECT_NAME.live --element=db --to=./database.sql.gz
             echo "Drop Database..."
             ./vendor/bin/drush sql:drop -y
             echo "Import database..."
@@ -90,6 +95,8 @@ jobs:
             echo "Cleaning cache..."
             ./vendor/bin/drush cr
             echo "Importing config..."
+            ./vendor/bin/drush config:set "system.site" uuid "$SITE_UUID" -y
+            ./vendor/bin/drush cr
             ./vendor/bin/drush cim -y
             ./vendor/bin/drush cim -y
             echo "Sanitizing database..."
@@ -108,18 +115,33 @@ jobs:
             /etc/init.d/nginx start > nginx.log &
             /etc/init.d/php7.3-fpm start > php7.3-fpm.log &
             ./node_modules/.bin/lhci autorun --collect.url=http://local_site.local
+      - persist_to_workspace:
+          root: /var/www/
+          paths: local_site
 
   deploy-dev:
     docker:
       - image: kporras07/docker-drupal-nginx:php-7.3.x-backstop
     working_directory: /var/www/local_site
     steps:
-      - checkout
-      - run:
-          name: Install Platform CLI
-          command: |
-            curl -sS https://platform.sh/cli/installer | php
+      - attach_workspace:
+          at: /var/www
       - add_ssh_keys:
+      - run:
+          name: Install Composer
+          command: |
+            php -r "copy('https://getcomposer.org/installer', 'composer-setup.php');" && \
+            php -r "copy('https://composer.github.io/installer.sig', 'composer-setup.sig');" && \
+            php -r "if (hash_file('SHA384', 'composer-setup.php') === trim(file_get_contents('composer-setup.sig'))) { echo 'Installer verified'; } else { echo 'Installer corrupt'; unlink('composer-setup.php'); } echo PHP_EOL;" && \
+            php composer-setup.php && \
+            php -r "unlink('composer-setup.php');"
+            mv composer.phar /usr/bin/composer
+      - run: composer install
+      - run:
+          name: Login terminus
+          command: |
+            ln -s /var/www/local_site/terminus/vendor/bin/terminus /usr/bin/terminus
+            terminus auth:login --machine-token=$PANTHEON_TOKEN
       - run:
           name: Deploy commands
           no_output_timeout: 20m
@@ -128,24 +150,29 @@ jobs:
             git config --global user.name $GIT_NAME
             echo 'Host *' >> /root/.ssh/config
             echo '   StrictHostKeyChecking no' >> /root/.ssh/config
-            ./scripts/deploy.sh dev "Auto deploy triggered from master branch"
-            /root/.platformsh/bin/platform drush cc drush -p $PLATFORM_PROJECT_ID -e dev
-            /root/.platformsh/bin/platform drush si -p $PLATFORM_PROJECT_ID -e dev -- bloom --account-pass=admin -y
-            /root/.platformsh/bin/platform drush config:set -p $PLATFORM_PROJECT_ID -e dev -- "system.site" uuid "$SITE_UUID" -y
-            /root/.platformsh/bin/platform drush cr -p $PLATFORM_PROJECT_ID -e dev
-            /root/.platformsh/bin/platform drush cim -p $PLATFORM_PROJECT_ID -e dev -- -y
-            /root/.platformsh/bin/platform drush cr -p $PLATFORM_PROJECT_ID -e dev
+            terminus connection:set $PANTHEON_PROJECT_NAME.dev git
+            ./scripts/circleci/deploy.sh master "Auto deploy triggered from master branch"
+            terminus connection:set $PANTHEON_PROJECT_NAME.dev sftp
+            terminus drush $PANTHEON_PROJECT_NAME.dev -- si bloom --account-pass=admin -y
+            terminus connection:set $PANTHEON_PROJECT_NAME.dev git
+            terminus drush $PANTHEON_PROJECT_NAME.dev -- config:set "system.site" uuid "$SITE_UUID" -y
+            terminus drush $PANTHEON_PROJECT_NAME.dev -- cr
+            terminus drush $PANTHEON_PROJECT_NAME.dev -- cim -y
+            terminus drush $PANTHEON_PROJECT_NAME.dev -- cr
 
-  deploy-staging:
+  deploy-test:
     docker:
       - image: kporras07/docker-drupal-nginx:php-7.3.x
     working_directory: /var/www/local_site
     steps:
-      - run:
-          name: Install Platform CLI
-          command: |
-            curl -sS https://platform.sh/cli/installer | php
       - add_ssh_keys:
+      - run:
+          name: Install and login terminus
+          command: |
+            mkdir terminus && cd terminus
+            curl -O https://raw.githubusercontent.com/pantheon-systems/terminus-installer/master/builds/installer.phar && php installer.phar install
+            ln -s /var/www/local_site/terminus/vendor/bin/terminus /usr/bin/terminus
+            terminus auth:login --machine-token=$PANTHEON_TOKEN
       - run:
           name: Deploy commands
           command: |
@@ -153,26 +180,25 @@ jobs:
             git config --global user.name $GIT_NAME
             echo 'Host *' >> /root/.ssh/config
             echo '   StrictHostKeyChecking no' >> /root/.ssh/config
-            /root/.platformsh/bin/platform drush cc drush -p $PLATFORM_PROJECT_ID -e staging
-            /root/.platformsh/bin/platform drush cr -p $PLATFORM_PROJECT_ID -e staging
-            /root/.platformsh/bin/platform merge -p $PLATFORM_PROJECT_ID -e dev -y || true
-            /root/.platformsh/bin/platform sync data -p $PLATFORM_PROJECT_ID -e staging -y || true
-            /root/.platformsh/bin/platform drush sqlsan -p $PLATFORM_PROJECT_ID -e staging -- --sanitize-password=admin -y
-            /root/.platformsh/bin/platform drush updb -p $PLATFORM_PROJECT_ID -e staging -- --no-cache-clear -y
-            /root/.platformsh/bin/platform drush cr -p $PLATFORM_PROJECT_ID -e staging
-            /root/.platformsh/bin/platform drush cim -p $PLATFORM_PROJECT_ID -e staging -- -y
-            /root/.platformsh/bin/platform drush cr -p $PLATFORM_PROJECT_ID -e staging
+            terminus env:deploy $PANTHEON_PROJECT_NAME.test --note "Autodeploy from Circle" -y
+            terminus drush $PANTHEON_PROJECT_NAME.test -- updb -y
+            terminus drush $PANTHEON_PROJECT_NAME.test -- cr
+            terminus drush $PANTHEON_PROJECT_NAME.test -- cim -y
+            terminus drush $PANTHEON_PROJECT_NAME.test -- cr
 
   deploy-live:
     docker:
       - image: kporras07/docker-drupal-nginx:php-7.3.x
     working_directory: /var/www/local_site
     steps:
-      - run:
-          name: Install Platform CLI
-          command: |
-            curl -sS https://platform.sh/cli/installer | php
       - add_ssh_keys:
+      - run:
+          name: Install and login terminus
+          command: |
+            mkdir terminus && cd terminus
+            curl -O https://raw.githubusercontent.com/pantheon-systems/terminus-installer/master/builds/installer.phar && php installer.phar install
+            ln -s /var/www/local_site/terminus/vendor/bin/terminus /usr/bin/terminus
+            terminus auth:login --machine-token=$PANTHEON_TOKEN
       - run:
           name: Deploy commands
           command: |
@@ -180,14 +206,64 @@ jobs:
             git config --global user.name $GIT_NAME
             echo 'Host *' >> /root/.ssh/config
             echo '   StrictHostKeyChecking no' >> /root/.ssh/config
-            /root/.platformsh/bin/platform backup:create -p $PLATFORM_PROJECT_ID -e master -y
-            /root/.platformsh/bin/platform drush cc drush -p $PLATFORM_PROJECT_ID -e master
-            /root/.platformsh/bin/platform drush cr -p $PLATFORM_PROJECT_ID -e master
-            /root/.platformsh/bin/platform merge -p $PLATFORM_PROJECT_ID -e staging -y || true
-            /root/.platformsh/bin/platform drush updb -p $PLATFORM_PROJECT_ID -e master -- --no-cache-clear -y
-            /root/.platformsh/bin/platform drush cr -p $PLATFORM_PROJECT_ID -e master
-            /root/.platformsh/bin/platform drush cim -p $PLATFORM_PROJECT_ID -e master -- -y
-            /root/.platformsh/bin/platform drush cr -p $PLATFORM_PROJECT_ID -e master
+            terminus env:deploy $PANTHEON_PROJECT_NAME.live --note "Autodeploy from Circle" -y
+            terminus drush $PANTHEON_PROJECT_NAME.live -- updb -y
+            terminus drush $PANTHEON_PROJECT_NAME.live -- cim -y
+            terminus drush $PANTHEON_PROJECT_NAME.live -- cr
+
+  deploy-multidev:
+    docker:
+      - image: kporras07/docker-drupal-nginx:php-7.3.x-backstop
+    working_directory: /var/www/local_site
+    steps:
+      - checkout
+      - add_ssh_keys:
+      - run:
+          name: Install Composer
+          command: |
+            php -r "copy('https://getcomposer.org/installer', 'composer-setup.php');" && \
+            php -r "copy('https://composer.github.io/installer.sig', 'composer-setup.sig');" && \
+            php -r "if (hash_file('SHA384', 'composer-setup.php') === trim(file_get_contents('composer-setup.sig'))) { echo 'Installer verified'; } else { echo 'Installer corrupt'; unlink('composer-setup.php'); } echo PHP_EOL;" && \
+            php composer-setup.php && \
+            php -r "unlink('composer-setup.php');"
+            mv composer.phar /usr/bin/composer
+      - run: composer install
+      - run:
+          name: Install and login terminus
+          command: |
+            mkdir terminus && cd terminus
+            curl -O https://raw.githubusercontent.com/pantheon-systems/terminus-installer/master/builds/installer.phar && php installer.phar install
+            ln -s /var/www/local_site/terminus/vendor/bin/terminus /usr/bin/terminus
+            terminus auth:login --machine-token=$PANTHEON_TOKEN
+      - run:
+          name: Create multidev environment
+          command: |
+            NEWBRANCH=$CIRCLE_BRANCH
+            LENGTH=${#NEWBRANCH}
+            if [ LENGTH > 10 ] ; then NEWBRANCH=${NEWBRANCH:8:9} ; fi
+            NEWBRANCH=${NEWBRANCH//-/}
+            NEWBRANCH=${NEWBRANCH,,}
+            terminus multidev:create $PANTHEON_PROJECT_NAME.live $NEWBRANCH || true
+      - run:
+          name: Deploy commands
+          command: |
+            NEWBRANCH=$CIRCLE_BRANCH
+            LENGTH=${#NEWBRANCH}
+            if [ LENGTH > 10 ] ; then NEWBRANCH=${NEWBRANCH:8:9} ; fi
+            NEWBRANCH=${NEWBRANCH//-/}
+            NEWBRANCH=${NEWBRANCH,,}
+            git config --global user.email $GIT_EMAIL
+            git config --global user.name $GIT_NAME
+            echo 'Host *' >> /root/.ssh/config
+            echo '   StrictHostKeyChecking no' >> /root/.ssh/config
+            ./scripts/circleci/deploy.sh $NEWBRANCH "Auto deploy triggered from master branch"
+            terminus drush $PANTHEON_PROJECT_NAME.$NEWBRANCH -- cr
+            terminus drush $PANTHEON_PROJECT_NAME.$NEWBRANCH -- sqlsan -y
+            terminus drush $PANTHEON_PROJECT_NAME.$NEWBRANCH -- updb -y
+            terminus drush $PANTHEON_PROJECT_NAME.$NEWBRANCH -- cim -y
+            terminus drush $PANTHEON_PROJECT_NAME.$NEWBRANCH -- cr
+            terminus lock:enable $PANTHEON_PROJECT_NAME.$NEWBRANCH -- $PANTHEON_WEB_AUTH_USER $PANTHEON_WEB_AUTH_PASS
+            echo "If everything worked, go to http://$NEWBRANCH-$PANTHEON_PROJECT_NAME.pantheonsite.io"
 
   lighthouse-on-live:
     docker:
@@ -209,16 +285,27 @@ workflows:
           filters:
             branches:
               only: master
-      - deploy-staging:
+      - deploy-test:
           requires:
             - deploy-dev
       - deploy-live-hold:
           type: approval
           requires:
-            - deploy-staging
+            - deploy-test
       - deploy-live:
           requires:
             - deploy-live-hold
+      - deploy-multidev-hold:
+          type: approval
+          requires:
+            - build
+          filters:
+            branches:
+              only:
+                - /feature\/.*/
+      - deploy-multidev:
+          requires:
+            - deploy-multidev-hold
       - lighthouse-on-live:
           requires:
             - deploy-live

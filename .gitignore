@@ -23,16 +23,18 @@ web/*
 files/*
 !files/.gitkeep
 
-
 # Composer
 vendor
 
 # Settings
 settings.secret.php
 settings.local.php
+settings.pantheon.php
 services.local.yml
 !.circleci/settings.secret.php
 
+# Pantheon
+.drush-lock-update
 
 # Book build output
 docs/_book
@@ -44,4 +46,3 @@ docs/*.mobi
 docs/*.pdf
 /.editorconfig
 /.gitattributes
-/.drush-lock-update
