@@ -13,6 +13,10 @@ Template based on [drupal/recomended-project](https://github.com/drupal/recommen
 
 ## Getting Started
 
+### How to use
+Use this template along the `composer create-project` command, to do that follow this instructions:
+- Create a new folder to store your new project code base, example: `mkdir my-project`
+- Create your project using this template `composer create-project manaticr/pantheon-drupal-template my-project`
 ### Prepare for local development
 
 This template uses [chirripo](https://docs.chirripo.dev/) as local environment.
